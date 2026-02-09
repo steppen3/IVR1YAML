@@ -1,0 +1,36 @@
+flow_steps:
+  # --- 1〜2番目のヒアリングステップは省略 ---
+
+  - id: "step_情報の突合実行"
+    description: "判定用ツールのみを実行する。"
+    instruction:
+      - "保持している h_phone_num と h_birth_date を用いて IVR1_verify_identity を実行してください。"
+      - "本ステップでは顧客情報の取得は行わず、一致判定のみを行います。"
+    tools:
+      - IVR1_verify_identity: **PROACTIVE**
+    transitions:
+      - next_step: "step_顧客情報ロード"
+        condition: "identity_verification1_succeed == 1"
+      - next_step: "step_本人確認失敗判定"
+        condition: "identity_verification1_succeed == 0"
+
+  - id: "step_顧客情報ロード"
+    description: "判定成功後、詳細データをプールに格納する。"
+    instruction:
+      - "発話はせず、即座に IVR1_get_customer_data を実行してください。"
+    tools:
+      - IVR1_get_customer_data: **PROACTIVE**
+    transitions:
+      - next_step: "step_シナリオ遷移"
+        condition: "常に遷移"
+
+  - id: "step_本人確認失敗判定"
+    description: "不一致時の対応。YAML上のリトライロジック。"
+    instruction:
+      - "判定に失敗した旨を伝え、もう一度ヒアリングに戻るか、有人転送するかを判断してください。"
+      - "（ここでAIが過去の失敗回数を踏まえて遷移先を決定します）"
+    transitions:
+      - next_step: "step_電話番号ヒアリング"
+        condition: "再確認を行う場合"
+      - next_step: "step_有人転送"
+        condition: "複数回失敗した場合"
