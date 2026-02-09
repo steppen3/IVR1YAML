@@ -1,0 +1,83 @@
+import pandas as pd
+import json
+import datetime
+import re
+
+# 共有データプールを取得
+shared_data = args.get("shared_data_pool", {})
+
+# AIからの入力値を取得
+input_tel_raw = str(args.get("h_phone_num", ""))
+input_birthday_raw = str(args.get("h_birth_date", ""))
+
+# --- 1. 電話番号の正規化（ハイフンを消して数字のみにする） ---
+input_tel_clean = re.sub(r'\D', '', input_tel_raw)
+
+# --- 2. 生年月日の正規化（YYYY/M/D形式） ---
+normalized_birthday = input_birthday_raw
+try:
+    # 記号をスラッシュに統一
+    temp_date = input_birthday_raw.replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
+    if len(temp_date) == 8 and temp_date.isdigit():
+        temp_date = f"{temp_date[:4]}/{temp_date[4:6]}/{temp_date[6:]}"
+    
+    for fmt in ('%Y/%m/%d', '%Y/%m/%d'):
+        try:
+            dt = datetime.datetime.strptime(temp_date, fmt)
+            normalized_birthday = f"{dt.year}/{dt.month}/{dt.day}" # ゼロ埋めなし
+            break
+        except ValueError:
+            continue
+except Exception:
+    pass
+
+# 現在時刻取得
+dt_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+
+# --- 3. 突合処理 ---
+target_filename = "customer_list.xlsx"
+file_path = files_path.get(target_filename)
+shared_data_dict = shared_data.copy()
+result = "不一致"
+
+if file_path:
+    try:
+        df = pd.read_excel(file_path)
+        
+        # Excel側のデータも比較用に加工して一時的な列を作る
+        # r_phone_num からハイフンを除去 / r_birth_date を YYYY/M/D 文字列に変換
+        def clean_excel_date(x):
+            try:
+                d = pd.to_datetime(x)
+                return f"{d.year}/{d.month}/{d.day}"
+            except:
+                return str(x)
+
+        df['_tmp_tel'] = df['r_phone_num'].astype(str).str.replace(r'\D', '', regex=True)
+        df['_tmp_birth'] = df['r_birth_date'].apply(clean_excel_date)
+
+        # 突合実行
+        match = df[
+            (df['_tmp_tel'] == input_tel_clean) & 
+            (df['_tmp_birth'] == normalized_birthday)
+        ]
+
+        if not match.empty:
+            shared_data_series = match.iloc[0]
+            # 不要な一時列を除いてプールに格納
+            res_dict = shared_data_series.drop(['_tmp_tel', '_tmp_birth']).astype(str).to_dict()
+            shared_data_dict.update(res_dict)
+            shared_data_dict["identity_verification1_succeed"] = 1
+            shared_data_dict["current_time"] = dt_now.strftime('%Y-%m-%d %H:%M:%S')
+            result = "一致"
+        else:
+            shared_data_dict["identity_verification1_succeed"] = 0
+            result = "不一致"
+            
+    except Exception as e:
+        shared_data_dict["identity_verification1_succeed"] = 0
+        shared_data_dict["error_reason"] = str(e)
+        result = "実行エラー"
+
+# --- 出力 ---
+json.dumps({"result": result, "shared_data_pool": shared_data_dict})
