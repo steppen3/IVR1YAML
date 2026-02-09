@@ -1,0 +1,25 @@
+import pandas as pd
+import json
+
+shared_data = args.get("shared_data_pool", {})
+input_tel = str(shared_data.get("h_phone_num", ""))
+# ※判定時と同じ正規化ロジックを使用
+import re
+input_tel_clean = re.sub(r'\D', '', input_tel)
+
+df = pd.read_excel(files_path.get("customer_list.xlsx"))
+df['_tmp_tel'] = df['r_phone_num'].astype(str).str.replace(r'\D', '', regex=True)
+
+# 該当行を取得
+match = df[df['_tmp_tel'] == input_tel_clean]
+
+output_pool = shared_data.copy()
+if not match.empty:
+    # 最初の1行を辞書形式で追加
+    customer_info = match.iloc[0].astype(str).to_dict()
+    output_pool.update(customer_info)
+
+json.dumps({
+    "result": "データロード完了",
+    "shared_data_pool": output_pool
+})
