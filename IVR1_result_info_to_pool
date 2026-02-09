@@ -1,0 +1,85 @@
+import pandas as pd
+import json
+import datetime
+
+# 共有データプールを取得
+shared_data = args.get("shared_data_pool", {})
+
+# AIからの入力値を取得
+input_tel = args.get("h_phone_num")
+input_birthday_raw = args.get("h_birth_date")
+
+# --- 生年月日の正規化処理（YYYY/M/D形式：ゼロ埋めなし） ---
+normalized_birthday = str(input_birthday_raw)
+
+try:
+    # 記号や漢字をスラッシュに統一
+    temp_date = str(input_birthday_raw).replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
+    
+    # 数字8桁(19900621)の場合の処理
+    if len(temp_date) == 8 and temp_date.isdigit():
+        temp_date = f"{temp_date[:4]}/{temp_date[4:6]}/{temp_date[6:]}"
+    
+    # 日付型に変換
+    for fmt in ('%Y/%m/%d', '%Y/%m/%d'):
+        try:
+            dt = datetime.datetime.strptime(temp_date, fmt)
+            # ゼロ埋めなしの YYYY/M/D 形式
+            normalized_birthday = f"{dt.year}/{dt.month}/{dt.day}"
+            break
+        except ValueError:
+            continue
+except Exception:
+    pass
+
+# 入力された店番号口座番号を取得（今回の場合は電話番号と生年月日）
+# shared_data自体に入力値を一時格納
+shared_data["h_phone_num"] = input_tel
+shared_data["h_birth_date"] = normalized_birthday
+
+# 現在時刻を取得
+dt_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+
+# Excelファイルパスを取得
+target_filename = "customer_list.xlsx"
+file_path = files_path.get(target_filename)
+
+# --- 突合処理 ---
+result = "不一致" # 初期値
+shared_data_dict = shared_data.copy() # 出力用辞書の作成
+
+if file_path is not None:
+    try:
+        df = pd.read_excel(file_path)
+        
+        # 突合の実行
+        match = df[
+            (df["r_phone_num"].astype(str) == str(input_tel)) & 
+            (df["r_birth_date"].astype(str) == str(normalized_birthday))
+        ]
+
+        # マッチした顧客情報をすべてshared_data_seriesに格納する
+        if not match.empty:
+            shared_data_series = match.iloc[0]
+            # 入力データが入っているshared_data_dictに顧客情報を統合
+            shared_data_dict.update(shared_data_series.astype(str).to_dict())
+            shared_data_dict["current_time"] = dt_now.strftime('%Y-%m-%d %H:%M:%S')
+            shared_data_dict["identity_verification1_succeed"] = 1
+            result = "一致"
+        else:
+            shared_data_dict["identity_verification1_succeed"] = 0
+            result = "不一致"
+
+    except Exception as e:
+        shared_data_dict["identity_verification1_succeed"] = 0
+        shared_data_dict["error_reason"] = str(e)
+        result = "実行エラー"
+else:
+    shared_data_dict["identity_verification1_succeed"] = 0
+    result = "ファイル未検出"
+
+# --- 出力 ---
+json.dumps({
+    "result": result,
+    "shared_data_pool": shared_data_dict
+})
