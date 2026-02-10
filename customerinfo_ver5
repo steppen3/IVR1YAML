@@ -1,0 +1,59 @@
+import pandas as pd
+import json
+import datetime
+import re
+
+# 1. AIが会話から抽出した値を直接「引数(args)」から取得する
+input_tel = str(args.get("h_phone_num", ""))
+input_birth_raw = str(args.get("h_birth_date", ""))
+
+# 2. 正規化（判定時と同じ最強ロジック）
+def to_std_birth(date_str):
+    if not date_str or date_str == "" or date_str == "None": return "EMPTY"
+    try:
+        s = str(date_str).split('.')[0]
+        s = s.replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
+        if len(s) == 8 and s.isdigit():
+            s = f"{s[:4]}/{s[4:6]}/{s[6:]}"
+        dt = pd.to_datetime(s)
+        return f"{dt.year}/{dt.month}/{dt.day}"
+    except:
+        return str(date_str).strip()
+
+input_tel_clean = re.sub(r'\D', '', input_tel)
+input_birth_clean = to_std_birth(input_birth_raw)
+
+# 3. Excel読み込みと照合
+file_path = files_path.get("customer_list.xlsx")
+df = pd.read_excel(file_path)
+
+# Excel側の比較用加工
+df['_tmp_tel'] = df['r_phone_num'].apply(lambda x: re.sub(r'\D', '', str(x).split('.')[0]))
+df['_tmp_birth'] = df['r_birth_date'].apply(to_std_birth)
+
+# 4. 照合実行
+match = df[(df["_tmp_tel"] == input_tel_clean) & (df["_tmp_birth"] == input_birth_clean)]
+
+# 5. shared_data_pool（AIの記憶域）への書き込み準備
+# 既存のデータを取得し、そこに新しい顧客情報をマージする
+output_pool = args.get("shared_data_pool", {})
+output_pool["h_phone_num"] = input_tel
+output_pool["h_birth_date"] = input_birth_raw
+
+if not match.empty:
+    customer_info = match.iloc[0].astype(str).to_dict()
+    # 不要な一時列を削除
+    customer_info.pop('_tmp_tel', None)
+    customer_info.pop('_tmp_birth', None)
+    
+    # 全顧客情報をメモリに格納
+    output_pool.update(customer_info)
+    res_msg = "成功：顧客データをメモリにロードしました"
+else:
+    res_msg = f"不一致：(Tel:{input_tel_clean}, Birth:{input_birth_clean}) に該当するデータがありません"
+
+# 6. 結果を返す（これでshared_data_poolに顧客情報が書き込まれる）
+json.dumps({
+    "result": res_msg,
+    "shared_data_pool": output_pool
+})
