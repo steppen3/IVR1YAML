@@ -1,0 +1,63 @@
+import pandas as pd
+import json
+import re
+
+# 共有データプールを取得
+shared_data = args.get("shared_data_pool", {})
+
+# AIからの入力値を取得
+input_tel = str(args.get("h_phone_num", ""))
+input_birthday_raw = str(args.get("h_birth_date", ""))
+
+# 電話番号の正規化（数字のみ抽出）
+input_tel_clean = re.sub(r'\D', '', input_tel)
+
+# 生年月日の正規化（YYYY/M/D形式：ゼロ埋めなし）
+normalized_birthday = input_birthday_raw
+try:
+    # 記号の統一と変換
+    temp_date = input_birthday_raw.replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
+    if len(temp_date) == 8 and temp_date.isdigit():
+        temp_date = f"{temp_date[:4]}/{temp_date[4:6]}/{temp_date[6:]}"
+    
+    # pandasを使用して日付型へ変換し、再度 YYYY/M/D 形式の文字列にする
+    dt = pd.to_datetime(temp_date)
+    normalized_birthday = f"{dt.year}/{dt.month}/{dt.day}"
+except:
+    pass
+
+# Excelファイル読み込み（突合処理）
+file_path = files_path.get("customer_list.xlsx")
+result_status = 0 # デフォルトは失敗
+
+if file_path:
+    try:
+        df = pd.read_excel(file_path)
+        # Excel側の比較用一時列を作成（AIには見せない）
+        df['_tmp_tel'] = df['r_phone_num'].astype(str).str.replace(r'\D', '', regex=True)
+        def clean_excel_date(x):
+            try:
+                d = pd.to_datetime(x)
+                return f"{d.year}/{d.month}/{d.day}"
+            except: return str(x)
+        df['_tmp_birth'] = df['r_birth_date'].apply(clean_excel_date)
+
+        # 突合実行
+        match = df[(df['_tmp_tel'] == input_tel_clean) & (df['_tmp_birth'] == normalized_birthday)]
+        if not match.empty:
+            result_status = 1
+    except:
+        result_status = 0
+
+# 【重要】AIが勝手に推論しないよう、shared_data_poolを「判定結果のみ」に作り直して返す
+# 以前のshared_dataを一切引き継がないことで、AIの勝手な推論をリセットします。
+new_pool = {
+    "h_phone_num": input_tel,
+    "h_birth_date": normalized_birthday,
+    "identity_verification1_succeed": result_status
+}
+
+json.dumps({
+    "result": "判定完了" if result_status == 1 else "不一致",
+    "shared_data_pool": new_pool
+})
