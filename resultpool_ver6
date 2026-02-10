@@ -1,16 +1,36 @@
 import pandas as pd
 import json
 import re
+from datetime import datetime
 
-# 1. データの取得（安全に取得）
+# 1. AIからの入力値を取得
 shared_data = args.get("shared_data_pool", {})
 input_tel = str(args.get("h_phone_num", ""))
-input_birthday = str(args.get("h_birth_date", ""))
+input_birthday_raw = str(args.get("h_birth_date", ""))
 
-# 2. 比較用の正規化
+# 2. 電話番号の正規化（数字以外をすべて除去）
+# 例: "090-1111-2222" -> "09011112222"
 input_tel_clean = re.sub(r'\D', '', input_tel)
 
-# 3. ファイルの読み込みと判定
+# 3. 生年月日の正規化（YYYY/M/D ゼロ埋めなし形式へ変換）
+def to_std_birth(date_str):
+    try:
+        # 漢字や記号をスラッシュに置換
+        s = str(date_str).replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
+        # 数字8桁(19900101)の場合の処理
+        if len(s) == 8 and s.isdigit():
+            s = f"{s[:4]}/{s[4:6]}/{s[6:]}"
+        
+        # 一旦日付型に変換（様々なフォーマットに対応）
+        dt = pd.to_datetime(s)
+        # 1990/1/1 形式（ゼロ埋めなし）の文字列を生成
+        return f"{dt.year}/{dt.month}/{dt.day}"
+    except:
+        return str(date_str)
+
+input_birth_clean = to_std_birth(input_birthday_raw)
+
+# 4. Excel読み込みと突合
 target_filename = "customer_list.xlsx"
 file_path = files_path.get(target_filename)
 is_match = 0
@@ -18,33 +38,33 @@ is_match = 0
 if file_path:
     try:
         df = pd.read_excel(file_path)
-        # 比較用のテンポラリ列を作成
+        
+        # Excel側の電話番号を「数字のみ」に変換
         df['_tmp_tel'] = df['r_phone_num'].astype(str).str.replace(r'\D', '', regex=True)
-        # 突合
-        match = df[(df['_tmp_tel'] == input_tel_clean) & (df['r_birth_date'].astype(str) == input_birthday)]
+        # Excel側の生年月日を「YYYY/M/D」に変換
+        df['_tmp_birth'] = df['r_birth_date'].apply(to_std_birth)
+
+        # 突合実行
+        match = df[
+            (df['_tmp_tel'] == input_tel_clean) & 
+            (df['_tmp_birth'] == input_birth_clean)
+        ]
+
         if not match.empty:
             is_match = 1
     except Exception as e:
-        # エラー時は失敗扱い
         is_match = 0
 
-# 4. 【重要】AIの暴走を止めるためのデータ返却
-# 既存の構造を壊さないようshared_dataをベースにしつつ、
-# 顧客情報（氏名、残高など）を「絶対に含めない」ように判定フラグだけを更新する
+# 5. 出力（AIに余計な情報を渡さない）
+# 以前のshared_dataに含まれる可能性のある顧客情報(r_...)を完全に排除し、
+# 判定に必要な最小限のキーのみで構成した新しい辞書を返します。
 output_pool = {
     "h_phone_num": input_tel,
-    "h_birth_date": input_birthday,
+    "h_birth_date": input_birth_clean,
     "identity_verification1_succeed": is_match
 }
 
-# 以前のデータから「h_」で始まる入力値などは引き継いでも良いが、
-# Excelから引き抜いた「r_」で始まる項目（氏名、残高、住所等）が
-# 絶対に含まれないように、新しく辞書を定義して返します。
-
-result_text = "一致" if is_match == 1 else "不一致"
-
-# 出力
 json.dumps({
-    "result": result_text,
+    "result": "一致" if is_match == 1 else "不一致",
     "shared_data_pool": output_pool
 })
