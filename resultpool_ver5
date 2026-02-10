@@ -1,0 +1,38 @@
+import pandas as pd
+import json
+import re
+
+# 共有データプールを取得
+shared_data = args.get("shared_data_pool", {})
+
+# AIからの入力値を取得
+input_tel = str(args.get("h_phone_num", ""))
+input_birthday = str(args.get("h_birth_date", ""))
+
+# Excelファイルパス
+file_path = files_path.get("customer_list.xlsx")
+
+# --- 判定ロジック ---
+is_match = 0
+if file_path:
+    df = pd.read_excel(file_path)
+    # 比較用に正規化（ハイフン除去など）
+    df['_tmp_tel'] = df['r_phone_num'].astype(str).str.replace(r'\D', '', regex=True)
+    input_tel_clean = re.sub(r'\D', '', input_tel)
+    
+    match = df[(df['_tmp_tel'] == input_tel_clean) & (df['r_birth_date'].astype(str) == input_birthday)]
+    if not match.empty:
+        is_match = 1
+
+# 【ここが重要】AIに「残高」や「氏名」というキーを一切見せない
+# 以前のshared_dataをコピーせず、必要なものだけを新規作成して返します
+clean_pool = {
+    "h_phone_num": input_tel,
+    "h_birth_date": input_birthday,
+    "identity_verification1_succeed": is_match
+}
+
+json.dumps({
+    "result": "判定完了",
+    "shared_data_pool": clean_pool
+})
