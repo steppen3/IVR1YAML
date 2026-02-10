@@ -1,0 +1,49 @@
+import pandas as pd
+import json
+import datetime
+
+# Excelファイルを読む
+file_path = files_path.get("customer_list.xlsx")
+df = pd.read_excel(file_path)
+
+# 共有データプールを取得（過去の会話も含む）
+shared_data = args.get("shared_data_pool", {})
+
+# テスト用
+# input_account_holder_kana = df["r_account_holder_kana"]
+
+
+# 入力値（今回ユーザーから取れたもの）
+input_account_holder_kana = args.get("h_account_holder_kana")
+
+# 入力された名義人名（かな）を取得
+shared_data["h_account_holder_kana"] = input_account_holder_kana
+
+# 現在時刻を取得
+dt_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+
+# --- 突合処理 ---
+match = df[
+    (df["r_account_holder_kana"] == shared_data["h_account_holder_kana"]) 
+]
+
+# json変換用に辞書型のshared_dataを作成
+shared_data_dict = {}
+
+# マッチした顧客情報をすべてshared_data_seriesに格納する
+if not match.empty:
+    shared_data_series = match.iloc[0]
+    shared_data_dict = shared_data_series.astype(str).to_dict()
+    shared_data_dict["current_time"] = dt_now.strftime('%Y-%m-%d %H:%M:%S')
+    result = "一致"
+else:
+    result = "不一致"
+
+# テスト用
+# print(result)
+
+# --- 出力 ---
+json.dumps({
+    "result": result,
+    "shared_data_pool": shared_data_dict
+})
