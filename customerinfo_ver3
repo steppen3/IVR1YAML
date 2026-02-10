@@ -1,0 +1,73 @@
+import pandas as pd
+import json
+import datetime
+import re
+
+# 1. 共有データプールを取得
+shared_data = args.get("shared_data_pool", {})
+
+# 2. 入力値（判定時に取得済みの電話番号と生年月日）を取得
+input_tel = str(shared_data.get("h_phone_num", ""))
+input_birthday_raw = str(shared_data.get("h_birth_date", ""))
+
+# 3. 正規化ロジック：電話番号（数字のみ抽出）
+input_tel_clean = re.sub(r'\D', '', input_tel)
+
+# 4. 正規化ロジック：生年月日（YYYY/M/D形式へ強制変換）
+def to_std_birth(date_str):
+    try:
+        # 記号や漢字をスラッシュに統一
+        s = str(date_str).replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
+        # 8桁数字（19900101等）の対応
+        if len(s) == 8 and s.isdigit():
+            s = f"{s[:4]}/{s[4:6]}/{s[6:]}"
+        
+        # 日付型に変換後、1990/1/1形式（ゼロ埋めなし）の文字列を生成
+        dt = pd.to_datetime(s)
+        return f"{dt.year}/{dt.month}/{dt.day}"
+    except:
+        return str(date_str)
+
+input_birth_clean = to_std_birth(input_birthday_raw)
+
+# 5. Excelファイルの読み込み
+file_path = files_path.get("customer_list.xlsx")
+df = pd.read_excel(file_path)
+
+# 6. Excel側のデータも比較用に正規化
+# ※元の列（r_phone_num等）は壊さず、一時的な比較用列を作成
+df['_tmp_tel'] = df['r_phone_num'].astype(str).str.replace(r'\D', '', regex=True)
+df['_tmp_birth'] = df['r_birth_date'].apply(to_std_birth)
+
+# 7. --- 突合処理（二重チェック） ---
+match = df[
+    (df["_tmp_tel"] == input_tel_clean) & 
+    (df["_tmp_birth"] == input_birth_clean)
+]
+
+# 8. 結果の格納
+# 現在時刻を取得（JST）
+dt_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+
+# 出力用プール（既存の入力を引き継ぐ）
+output_pool = shared_data.copy()
+
+if not match.empty:
+    # マッチした顧客情報をすべて辞書型で格納
+    customer_info = match.iloc[0].astype(str).to_dict()
+    # 一時列は不要なので削除
+    customer_info.pop('_tmp_tel', None)
+    customer_info.pop('_tmp_birth', None)
+    
+    # データをマージ
+    output_pool.update(customer_info)
+    output_pool["current_time"] = dt_now.strftime('%Y-%m-%d %H:%M:%S')
+    result = "一致（データロード完了）"
+else:
+    result = "不一致（データロード失敗）"
+
+# 9. --- 出力 ---
+json.dumps({
+    "result": result,
+    "shared_data_pool": output_pool
+})
