@@ -1,0 +1,61 @@
+import pandas as pd
+import json
+import datetime
+import re
+
+# 1. データの取得
+shared_data = args.get("shared_data_pool", {})
+# YAML側で保持している変数名に合わせてください
+input_tel = str(shared_data.get("h_phone_num", ""))
+input_birth_raw = str(shared_data.get("h_birth_date", ""))
+
+# 2. 正規化（判定時と1文字も狂わないように設定）
+def to_std_birth(date_str):
+    if not date_str or date_str == "None": return "INPUT_EMPTY"
+    try:
+        s = str(date_str).split('.')[0]
+        s = s.replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
+        if len(s) == 8 and s.isdigit():
+            s = f"{s[:4]}/{s[4:6]}/{s[6:]}"
+        dt = pd.to_datetime(s)
+        return f"{dt.year}/{dt.month}/{dt.day}"
+    except:
+        return str(date_str).strip()
+
+input_tel_clean = re.sub(r'\D', '', input_tel)
+input_birth_clean = to_std_birth(input_birth_raw)
+
+# 3. Excel読み込み
+file_path = files_path.get("customer_list.xlsx")
+df = pd.read_excel(file_path)
+
+# Excel側の正規化（全角・型変換対策）
+df.columns = df.columns.str.strip() # 列名の空白削除
+df['_tmp_tel'] = df['r_phone_num'].apply(lambda x: re.sub(r'\D', '', str(x).split('.')[0]))
+df['_tmp_birth'] = df['r_birth_date'].apply(to_std_birth)
+
+# 4. 突合
+match = df[
+    (df["_tmp_tel"] == input_tel_clean) & 
+    (df["_tmp_birth"] == input_birth_clean)
+]
+
+# 5. 結果作成
+dt_now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+output_pool = shared_data.copy()
+
+if not match.empty:
+    customer_info = match.iloc[0].astype(str).to_dict()
+    customer_info.pop('_tmp_tel', None)
+    customer_info.pop('_tmp_birth', None)
+    output_pool.update(customer_info)
+    output_pool["current_time"] = dt_now.strftime('%Y-%m-%d %H:%M:%S')
+    res_msg = "成功"
+else:
+    # 【ここがデバッグ用】なぜ失敗したかをresultに書き出す
+    res_msg = f"不一致：入力値(Tel:{input_tel_clean}, Birth:{input_birth_clean})がExcelに見つかりません。"
+
+json.dumps({
+    "result": res_msg,
+    "shared_data_pool": output_pool
+})
