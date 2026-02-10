@@ -1,0 +1,62 @@
+import pandas as pd
+import json
+import re
+
+# 1. 共有データプールから入力値を取得
+shared_data = args.get("shared_data_pool", {})
+input_tel = str(shared_data.get("h_phone_num", ""))
+input_birthday_raw = str(shared_data.get("h_birth_date", ""))
+
+# 2. 比較用の正規化（判定時と同じロジック）
+input_tel_clean = re.sub(r'\D', '', input_tel)
+
+def to_std_birth(date_str):
+    try:
+        s = str(date_str).replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
+        if len(s) == 8 and s.isdigit():
+            s = f"{s[:4]}/{s[4:6]}/{s[6:]}"
+        dt = pd.to_datetime(s)
+        # 1990/1/1形式（ゼロ埋めなし）に統一
+        return f"{dt.year}/{dt.month}/{dt.day}"
+    except:
+        return str(date_str)
+
+input_birth_clean = to_std_birth(input_birthday_raw)
+
+# 3. Excelからのデータ引き出し
+target_filename = "customer_list.xlsx"
+file_path = files_path.get(target_filename)
+output_pool = shared_data.copy()
+
+if file_path:
+    try:
+        df = pd.read_excel(file_path)
+        
+        # Excel側のデータを正規化
+        df['_tmp_tel'] = df['r_phone_num'].astype(str).str.replace(r'\D', '', regex=True)
+        df['_tmp_birth'] = df['r_birth_date'].apply(to_std_birth)
+        
+        # 2つの条件で確実に1行を特定
+        match = df[
+            (df['_tmp_tel'] == input_tel_clean) & 
+            (df['_tmp_birth'] == input_birth_clean)
+        ]
+        
+        if not match.empty:
+            # 成功：全カラム（氏名、残高など）を shared_data_pool に一括格納
+            customer_info = match.iloc[0].astype(str).to_dict()
+            output_pool.update(customer_info)
+            result_msg = "Success: Session context updated."
+        else:
+            result_msg = "Error: Record not found during loading."
+            
+    except Exception as e:
+        result_msg = f"Error: {str(e)}"
+else:
+    result_msg = "Error: Database file missing."
+
+# 4. 更新したプールを返す
+json.dumps({
+    "result": result_msg,
+    "shared_data_pool": output_pool
+})
