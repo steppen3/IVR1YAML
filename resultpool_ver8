@@ -1,0 +1,19 @@
+# 4. 【重要】AIの暴走を防ぎつつ、必要なフラグだけを引き継ぐ
+shared_data = args.get("shared_data_pool", {})
+
+# 過去のデータから、引き継ぎたい項目だけを抽出する
+clean_pool = {
+    # 本人確認が必要だったという事実は死守する
+    "is_verification_required": shared_data.get("is_verification_required"),
+    # 今回の判定結果を追加する
+    "identity_verification1_succeed": is_match,
+    # ヒアリングした値も残しておかないと、後のデータロードで使えなくなるため保持
+    "h_phone_num": input_tel,
+    "h_birth_date": input_birth_clean
+}
+
+# これにより、AIの視界に「残高」などは入らず、かつ必要なフラグは維持されます
+json.dumps({
+    "result": "判定完了",
+    "shared_data_pool": clean_pool
+})
