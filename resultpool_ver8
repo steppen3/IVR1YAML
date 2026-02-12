@@ -5,31 +5,26 @@ import re
 # 1. 入力値の取得
 input_tel = str(args.get("h_phone_num", ""))
 input_birthday_raw = str(args.get("h_birth_date", ""))
+shared_data = args.get("shared_data_pool", {}) # 過去の記憶を丸ごと取得
 
-# 2. 正規化（電話番号：数字のみ / 生年月日：YYYY/M/D）
+# 2. 正規化（電話番号・生年月日）
 input_tel_clean = re.sub(r'\D', '', input_tel)
-
 def to_std_birth(date_str):
     try:
         s = str(date_str).replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
-        if len(s) == 8 and s.isdigit():
-            s = f"{s[:4]}/{s[4:6]}/{s[6:]}"
         dt = pd.to_datetime(s)
-        # 1990/1/1形式（ゼロ埋めなし）で統一
-        return f"{dt.year}/{dt.month}/{dt.day}"
+        return dt.strftime('%Y/%m/%d')
     except:
-        return str(date_str)
+        return str(date_str).strip()
 
 input_birth_clean = to_std_birth(input_birthday_raw)
 
-# 3. Excel読み込みと突合
-file_path = files_path.get("customer_list.xlsx")
+# 3. Excel突合
 is_match = 0
-
+file_path = files_path.get("customer_list.xlsx")
 if file_path:
     try:
         df = pd.read_excel(file_path)
-        # Excel側の項目名は適宜合わせてください（例: r_phone_num, r_birth_date）
         df['_tmp_tel'] = df['r_phone_num'].astype(str).str.replace(r'\D', '', regex=True)
         df['_tmp_birth'] = df['r_birth_date'].apply(to_std_birth)
         
@@ -39,31 +34,19 @@ if file_path:
     except:
         is_match = 0
 
-# 4. 【重要】AIの暴走を防ぎつつ、必要なフラグだけを引き継ぐ
-shared_data = args.get("shared_data_pool", {})
+# 4. 【修正案】既存のデータを壊さず、判定結果だけを「追記」する
+# 過去のshared_dataをコピーしてベースにする
+output_pool = shared_data.copy()
 
-# 過去のデータから、引き継ぎたい項目だけを抽出する
-clean_pool = {
-    # 本人確認が必要だったという事実は死守する
-    "is_verification_required": shared_data.get("is_verification_required"),
-    # 今回の判定結果を追加する
+# 必要な情報だけを「上書き・追加」する
+output_pool.update({
     "identity_verification1_succeed": is_match,
-    # ヒアリングした値も残しておかないと、後のデータロードで使えなくなるため保持
     "h_phone_num": input_tel,
     "h_birth_date": input_birth_clean
-}
-
-# これにより、AIの視界に「残高」などは入らず、かつ必要なフラグは維持されます
-json.dumps({
-    "result": "判定完了",
-    "shared_data_pool": clean_pool
 })
 
-
-
-
-{
-  "result": "{\"result\": \"\\u5224\\u5b9a\\u5b8c\\u4e86\", \"shared_data_pool\": {\"is_verification_required\": null, \"identity_verification1_succeed\": 0, \"h_phone_num\": \"090-1111-2222\", \"h_birth_date\": \"1990/6/21\"}}",
-  "stdout": "",
-  "stderr": ""
-}
+# これなら is_verification_required が入っていれば、そのまま残ります。
+json.dumps({
+    "result": f"判定完了(Match:{is_match})",
+    "shared_data_pool": output_pool
+})
