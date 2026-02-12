@@ -1,0 +1,18 @@
+import json
+
+# 1. AIから「本人確認が必要か」の判断結果を受け取る
+# 引数名は needs_verification (bool型 または 0, 1) を想定
+needs_verify = args.get("needs_verification", False)
+
+# 2. 現在の共有データプールを取得
+output_pool = args.get("shared_data_pool", {})
+
+# 3. 判定フラグを格納
+# 後続のYAMLで分岐しやすいように「is_verification_required」というキーで保存します
+output_pool["is_verification_required"] = 1 if needs_verify else 0
+
+# 4. 結果を返却
+json.dumps({
+    "result": f"本人確認フラグを {'必要' if needs_verify else '不要'} に設定しました。",
+    "shared_data_pool": output_pool
+})
