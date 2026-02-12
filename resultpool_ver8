@@ -58,3 +58,12 @@ json.dumps({
     "result": "判定完了",
     "shared_data_pool": clean_pool
 })
+
+
+
+
+{
+  "result": "{\"result\": \"\\u5224\\u5b9a\\u5b8c\\u4e86\", \"shared_data_pool\": {\"is_verification_required\": null, \"identity_verification1_succeed\": 0, \"h_phone_num\": \"090-1111-2222\", \"h_birth_date\": \"1990/6/21\"}}",
+  "stdout": "",
+  "stderr": ""
+}
