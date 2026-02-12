@@ -5,15 +5,19 @@ import re
 # 1. 入力値の取得
 input_tel = str(args.get("h_phone_num", ""))
 input_birthday_raw = str(args.get("h_birth_date", ""))
-shared_data = args.get("shared_data_pool", {}) # 過去の記憶を丸ごと取得
+shared_data = args.get("shared_data_pool", {})
 
-# 2. 正規化（電話番号・生年月日）
+# 2. 正規化（1990/1/1 形式へ）
 input_tel_clean = re.sub(r'\D', '', input_tel)
+
 def to_std_birth(date_str):
     try:
         s = str(date_str).replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
+        if len(s) == 8 and s.isdigit():
+            s = f"{s[:4]}/{s[4:6]}/{s[6:]}"
         dt = pd.to_datetime(s)
-        return dt.strftime('%Y/%m/%d')
+        # ゼロ埋めなし形式
+        return f"{dt.year}/{dt.month}/{dt.day}"
     except:
         return str(date_str).strip()
 
@@ -25,6 +29,7 @@ file_path = files_path.get("customer_list.xlsx")
 if file_path:
     try:
         df = pd.read_excel(file_path)
+        # Excel側も同じ「ゼロなし」形式に変換
         df['_tmp_tel'] = df['r_phone_num'].astype(str).str.replace(r'\D', '', regex=True)
         df['_tmp_birth'] = df['r_birth_date'].apply(to_std_birth)
         
@@ -34,19 +39,15 @@ if file_path:
     except:
         is_match = 0
 
-# 4. 【修正案】既存のデータを壊さず、判定結果だけを「追記」する
-# 過去のshared_dataをコピーしてベースにする
+# 4. 既存のデータを壊さず更新
 output_pool = shared_data.copy()
-
-# 必要な情報だけを「上書き・追加」する
 output_pool.update({
     "identity_verification1_succeed": is_match,
     "h_phone_num": input_tel,
     "h_birth_date": input_birth_clean
 })
 
-# これなら is_verification_required が入っていれば、そのまま残ります。
 json.dumps({
-    "result": f"判定完了(Match:{is_match})",
+    "result": f"判定完了(入力:{input_tel_clean}, {input_birth_clean} / Match:{is_match})",
     "shared_data_pool": output_pool
 })
