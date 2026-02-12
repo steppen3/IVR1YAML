@@ -1,3 +1,44 @@
+import pandas as pd
+import json
+import re
+
+# 1. 入力値の取得
+input_tel = str(args.get("h_phone_num", ""))
+input_birthday_raw = str(args.get("h_birth_date", ""))
+
+# 2. 正規化（電話番号：数字のみ / 生年月日：YYYY/M/D）
+input_tel_clean = re.sub(r'\D', '', input_tel)
+
+def to_std_birth(date_str):
+    try:
+        s = str(date_str).replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
+        if len(s) == 8 and s.isdigit():
+            s = f"{s[:4]}/{s[4:6]}/{s[6:]}"
+        dt = pd.to_datetime(s)
+        # 1990/1/1形式（ゼロ埋めなし）で統一
+        return f"{dt.year}/{dt.month}/{dt.day}"
+    except:
+        return str(date_str)
+
+input_birth_clean = to_std_birth(input_birthday_raw)
+
+# 3. Excel読み込みと突合
+file_path = files_path.get("customer_list.xlsx")
+is_match = 0
+
+if file_path:
+    try:
+        df = pd.read_excel(file_path)
+        # Excel側の項目名は適宜合わせてください（例: r_phone_num, r_birth_date）
+        df['_tmp_tel'] = df['r_phone_num'].astype(str).str.replace(r'\D', '', regex=True)
+        df['_tmp_birth'] = df['r_birth_date'].apply(to_std_birth)
+        
+        match = df[(df['_tmp_tel'] == input_tel_clean) & (df['_tmp_birth'] == input_birth_clean)]
+        if not match.empty:
+            is_match = 1
+    except:
+        is_match = 0
+
 # 4. 【重要】AIの暴走を防ぎつつ、必要なフラグだけを引き継ぐ
 shared_data = args.get("shared_data_pool", {})
 
