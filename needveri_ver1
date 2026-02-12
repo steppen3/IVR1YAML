@@ -2,7 +2,7 @@ import json
 
 # 1. AIから「本人確認が必要か」の判断結果を受け取る
 # 引数名は needs_verification (bool型 または 0, 1) を想定
-needs_verify = args.get("needs_verification", False)
+needs_verify = args.get("h_needs_verification", False)
 
 # 2. 現在の共有データプールを取得
 output_pool = args.get("shared_data_pool", {})
