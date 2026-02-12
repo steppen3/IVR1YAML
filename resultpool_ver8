@@ -2,52 +2,73 @@ import pandas as pd
 import json
 import re
 
-# 1. 入力値の取得
+# 1. 入力値の取得（AIからの直接引数 ＋ 過去の共有データ）
 input_tel = str(args.get("h_phone_num", ""))
 input_birthday_raw = str(args.get("h_birth_date", ""))
 shared_data = args.get("shared_data_pool", {})
 
-# 2. 正規化（1990/1/1 形式へ）
+# 2. 【正規化ロジック：電話番号】
+# 数字以外の文字（ハイフン、カッコ等）をすべて削除
 input_tel_clean = re.sub(r'\D', '', input_tel)
 
+# 3. 【正規化ロジック：生年月日】
+# 1990/1/1（ゼロ埋めなし）形式に統一する関数
 def to_std_birth(date_str):
+    if not date_str or date_str == "None": return "EMPTY"
     try:
+        # 表記ゆれ（漢字、ハイフン）をスラッシュに置換
         s = str(date_str).replace('年', '/').replace('月', '/').replace('日', '').replace('-', '/')
+        # 8桁数字（19900101）をスラッシュ区切りに変換
         if len(s) == 8 and s.isdigit():
             s = f"{s[:4]}/{s[4:6]}/{s[6:]}"
+        
+        # 一度日付型に変換してから「年/月/日（ゼロなし）」で再出力
         dt = pd.to_datetime(s)
-        # ゼロ埋めなし形式
         return f"{dt.year}/{dt.month}/{dt.day}"
     except:
+        # 変換不能な場合は前後の空白だけ取って返す
         return str(date_str).strip()
 
 input_birth_clean = to_std_birth(input_birthday_raw)
 
-# 3. Excel突合
+# 4. 【Excel読み込みと突合処理】
 is_match = 0
 file_path = files_path.get("customer_list.xlsx")
+
 if file_path:
     try:
         df = pd.read_excel(file_path)
-        # Excel側も同じ「ゼロなし」形式に変換
-        df['_tmp_tel'] = df['r_phone_num'].astype(str).str.replace(r'\D', '', regex=True)
+        
+        # Excel側の項目名を正規化（r_phone_num, r_birth_dateを想定）
+        # 電話番号：数値型による「.0」付着を防ぎつつ数字のみ抽出
+        df['_tmp_tel'] = df['r_phone_num'].apply(lambda x: re.sub(r'\D', '', str(x).split('.')[0]))
+        # 生年月日：入力側と同じ「ゼロなし」関数を適用
         df['_tmp_birth'] = df['r_birth_date'].apply(to_std_birth)
         
+        # 突合実行
         match = df[(df['_tmp_tel'] == input_tel_clean) & (df['_tmp_birth'] == input_birth_clean)]
         if not match.empty:
             is_match = 1
-    except:
-        is_match = 0
+            
+    except Exception as e:
+        is_match = 0 # エラー時は不一致として扱う
+else:
+    is_match = 0
 
-# 4. 既存のデータを壊さず更新
+# 5. 【データプールの更新】
+# 過去のshared_dataをコピーし、今回の結果を「追記・更新」する
 output_pool = shared_data.copy()
+
+# 必要な情報を辞書にまとめてupdate（これによりis_verification_required等は保持される）
 output_pool.update({
     "identity_verification1_succeed": is_match,
     "h_phone_num": input_tel,
     "h_birth_date": input_birth_clean
 })
 
+# 6. 【出力】
+# resultにはAI向けのサマリー、shared_data_poolには全データを返す
 json.dumps({
-    "result": f"判定完了(入力:{input_tel_clean}, {input_birth_clean} / Match:{is_match})",
+    "result": f"判定完了（Match:{is_match}）",
     "shared_data_pool": output_pool
 })
