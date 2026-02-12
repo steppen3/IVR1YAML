@@ -1,0 +1,24 @@
+import json
+
+# 1. AIからの値を取得（文字列として扱う）
+needs_verify_raw = args.get("needs_verification")
+
+# 2. 真偽判定の修正
+# 文字列の "0"、数値の 0、または False の場合は「不要(0)」とする
+if needs_verify_raw in [0, "0", False, "false", "False"]:
+    is_required = 0
+elif needs_verify_raw in [1, "1", True, "true", "True"]:
+    is_required = 1
+else:
+    # 判定不能な場合は、念のため「必要(1)」に倒す、または現状を維持
+    is_required = 1 if needs_verify_raw else 0
+
+# 3. データの格納
+output_pool = args.get("shared_data_pool", {})
+output_pool["is_verification_required"] = is_required
+
+# 4. 結果を返却
+json.dumps({
+    "result": f"本人確認フラグを {is_required} に設定しました。",
+    "shared_data_pool": output_pool
+})
